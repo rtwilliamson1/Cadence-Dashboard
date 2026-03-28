@@ -196,6 +196,28 @@ let dailyChart = null;
 
 function fmt(n) { return '$' + Math.round(n).toLocaleString(); }
 
+function parseCSV(text) {
+  const rows = [];
+  let row = [], cell = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i], next = text[i+1];
+    if (inQuotes) {
+      if (ch === '"' && next === '"') { cell += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { cell += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { row.push(cell.trim()); cell = ''; }
+      else if (ch === '\n' || (ch === '\r' && next === '\n')) {
+        row.push(cell.trim()); rows.push(row); row = []; cell = '';
+        if (ch === '\r') i++;
+      } else { cell += ch; }
+    }
+  }
+  if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
+  return rows;
+}
+
 async function loadData() {
   document.getElementById('status').textContent = 'Refreshing...';
   document.getElementById('error-msg').style.display = 'none';
@@ -203,7 +225,7 @@ async function loadData() {
     const resp = await fetch(CSV_URL + '&t=' + Date.now());
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const text = await resp.text();
-    const rows = text.split('\n').map(r => r.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
+    const rows = parseCSV(text);
     parseAndRender(rows);
   } catch(e) {
     document.getElementById('loading').style.display = 'none';
