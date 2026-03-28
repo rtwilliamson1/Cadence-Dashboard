@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Cadence Advisory | Time Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f4f6f9; color: #222; }
+
+  header {
+    background: #1a2a3a;
+    color: white;
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+  header p { font-size: 11px; opacity: 0.65; margin-top: 3px; }
+  .header-row { display: flex; justify-content: space-between; align-items: center; }
+  #refresh-btn {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #refresh-btn:active { background: rgba(255,255,255,0.25); }
+
+  #status { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 6px; }
+
+  .content { padding: 12px; max-width: 600px; margin: 0 auto; }
+
+  /* KPI cards */
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .kpi-card {
+    background: white;
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .kpi-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-value { font-size: 26px; font-weight: 700; color: #1a2a3a; margin: 4px 0 2px; }
+  .kpi-sub { font-size: 11px; color: #aaa; }
+
+  /* Progress bar */
+  .card {
+    background: white;
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    margin-bottom: 14px;
+  }
+  .card-title { font-size: 12px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+
+  .progress-bar-bg { background: #e8ecf0; border-radius: 8px; height: 14px; overflow: hidden; margin-bottom: 6px; }
+  .progress-bar-fill { height: 100%; border-radius: 8px; background: linear-gradient(90deg, #1565c0, #00695c); transition: width 0.6s ease; }
+  .progress-labels { display: flex; justify-content: space-between; font-size: 11px; color: #888; }
+
+  /* Charts */
+  .chart-wrap { position: relative; height: 200px; }
+  .chart-wrap-tall { position: relative; height: 240px; }
+
+  /* Revenue table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px 8px; }
+  td { padding: 8px 6px; border-top: 1px solid #f0f0f0; }
+  tr.total-row td { font-weight: 700; border-top: 2px solid #e0e0e0; color: #1a2a3a; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+
+  /* Activity log */
+  .log-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid #f0f0f0; }
+  .log-item:first-child { border-top: none; }
+  .log-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .log-meta { font-size: 11px; color: #aaa; }
+  .log-task { font-size: 13px; color: #333; margin-top: 2px; }
+
+  #loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: #888;
+    font-size: 14px;
+  }
+  #error-msg {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 14px;
+    margin: 12px;
+    font-size: 13px;
+    color: #856404;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <h1>Cadence Advisory</h1>
+    <button id="refresh-btn" onclick="loadData()">↻ Refresh</button>
+  </div>
+  <p>TS $1,000/mo · CESMEL $1,300/mo · HSI $85/hr · ML $50/hr · Samasha pro bono</p>
+  <div id="status">Loading...</div>
+</header>
+
+<div id="error-msg"></div>
+<div id="loading">Fetching your timesheet...</div>
+<div id="dashboard" style="display:none">
+  <div class="content">
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Hours Logged</div>
+        <div class="kpi-value" id="kpi-hours">—</div>
+        <div class="kpi-sub" id="kpi-hours-sub">of 140 target</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Revenue</div>
+        <div class="kpi-value" id="kpi-revenue">—</div>
+        <div class="kpi-sub" id="kpi-rev-sub">this month</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Overhead</div>
+        <div class="kpi-value" id="kpi-oh">—</div>
+        <div class="kpi-sub" id="kpi-oh-sub">of total hours</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Billable Clients</div>
+        <div class="kpi-value" id="kpi-clients">—</div>
+        <div class="kpi-sub">active this month</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Progress to 140-Hour Target</div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+      </div>
+      <div class="progress-labels">
+        <span id="progress-left">— hrs remaining</span>
+        <span id="progress-pct">0%</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Hours by Client</div>
+      <div class="chart-wrap">
+        <canvas id="donutChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Daily Hours</div>
+      <div class="chart-wrap-tall">
+        <canvas id="dailyChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Revenue Breakdown</div>
+      <table>
+        <thead><tr><th>Client</th><th>Basis</th><th style="text-align:right">Amount</th></tr></thead>
+        <tbody id="rev-table"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Activity Log</div>
+      <div id="activity-log"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQf23UnK3iZClJfPv7vw3rC-Qm4vJI1u8ZRRvOZMFM0HhTxQH_illqhG8drVVEEQg/pub?output=csv';
+
+const CLIENTS = {
+  'Throwing Seeds': { col: { day: 2, hrs: 3, task: 4 }, color: '#1565c0', type: 'retainer', rate: 1000 },
+  'HSI':            { col: { day: 6, hrs: 7, task: 8 }, color: '#6a1b9a', type: 'hourly',   rate: 85   },
+  'CESMEL Health':  { col: { day: 10, hrs: 11, task: 12 }, color: '#00695c', type: 'retainer', rate: 1300 },
+  "Miriam's Library": { col: { day: 14, hrs: 15, task: 16 }, color: '#e65100', type: 'hourly', rate: 50 },
+  'Samasha':        { col: { day: 18, hrs: 19, task: 20 }, color: '#ad1457', type: 'probono', rate: 0 },
+  'OH':             { col: { day: 22, hrs: 23, task: 24 }, color: '#546e7a', type: 'overhead', rate: 0 },
+};
+
+let donutChart = null;
+let dailyChart = null;
+
+function fmt(n) { return '$' + Math.round(n).toLocaleString(); }
+
+async function loadData() {
+  document.getElementById('status').textContent = 'Refreshing...';
+  document.getElementById('error-msg').style.display = 'none';
+  try {
+    const resp = await fetch(CSV_URL + '&t=' + Date.now());
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = await resp.text();
+    const rows = text.split('\n').map(r => r.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
+    parseAndRender(rows);
+  } catch(e) {
+    document.getElementById('loading').style.display = 'none';
+    const errEl = document.getElementById('error-msg');
+    errEl.style.display = 'block';
+    errEl.textContent = 'Could not load data. Check your connection and try refreshing. (' + e.message + ')';
+    document.getElementById('status').textContent = 'Failed to load';
+  }
+}
+
+function parseAndRender(rows) {
+  // Data rows: days 1-31 are in rows index 13-43 (0-based)
+  const DATA_START = 13;
+  const DATA_END = 44;
+
+  const entries = []; // { day, client, hours, task }
+  const clientTotals = {};
+  const dailyTotals = {}; // day -> total hours
+  const dailyByClient = {}; // day -> { client: hrs }
+
+  Object.keys(CLIENTS).forEach(c => { clientTotals[c] = 0; });
+
+  for (let ri = DATA_START; ri < DATA_END && ri < rows.length; ri++) {
+    const row = rows[ri];
+    const dayNum = ri - DATA_START + 1;
+
+    Object.entries(CLIENTS).forEach(([name, cfg]) => {
+      const hrsRaw = row[cfg.col.hrs];
+      const task = row[cfg.col.task] || '';
+      const hrs = parseFloat(hrsRaw);
+      if (!isNaN(hrs) && hrs > 0) {
+        clientTotals[name] = (clientTotals[name] || 0) + hrs;
+        dailyTotals[dayNum] = (dailyTotals[dayNum] || 0) + hrs;
+        if (!dailyByClient[dayNum]) dailyByClient[dayNum] = {};
+        dailyByClient[dayNum][name] = (dailyByClient[dayNum][name] || 0) + hrs;
+        entries.push({ day: dayNum, client: name, hours: hrs, task });
+      }
+    });
+  }
+
+  // Totals
+  const totalHrs = Object.values(clientTotals).reduce((a, b) => a + b, 0);
+  const ohHrs = clientTotals['OH'] || 0;
+  const billableHrs = totalHrs - ohHrs;
+  const TARGET = 140;
+  const pct = Math.min(100, (totalHrs / TARGET * 100)).toFixed(1);
+
+  // Revenue
+  let totalRev = 0;
+  const activeClients = [];
+  const revRows = [];
+  Object.entries(CLIENTS).forEach(([name, cfg]) => {
+    const hrs = clientTotals[name] || 0;
+    let amount = 0, basis = '';
+    if (cfg.type === 'retainer' && hrs > 0) {
+      amount = cfg.rate; basis = 'flat monthly';
+    } else if (cfg.type === 'hourly' && hrs > 0) {
+      amount = hrs * cfg.rate; basis = `${hrs.toFixed(1)} hrs × $${cfg.rate}`;
+    } else if (hrs > 0) {
+      basis = cfg.type === 'overhead' ? 'overhead' : 'pro bono';
+    }
+    if (hrs > 0) {
+      activeClients.push(name);
+      revRows.push({ name, color: cfg.color, basis, amount });
+    }
+    totalRev += amount;
+  });
+
+  // Billable clients (exclude OH, Samasha)
+  const billableActive = activeClients.filter(c => CLIENTS[c].type === 'hourly' || CLIENTS[c].type === 'retainer');
+
+  // KPIs
+  document.getElementById('kpi-hours').textContent = totalHrs.toFixed(1);
+  document.getElementById('kpi-hours-sub').textContent = `of ${TARGET} hr target`;
+  document.getElementById('kpi-revenue').textContent = fmt(totalRev);
+  document.getElementById('kpi-rev-sub').textContent = 'this month';
+  document.getElementById('kpi-oh').textContent = ohHrs.toFixed(1) + 'h';
+  document.getElementById('kpi-oh-sub').textContent = totalHrs > 0 ? (ohHrs/totalHrs*100).toFixed(0) + '% of total' : '—';
+  document.getElementById('kpi-clients').textContent = billableActive.length;
+
+  // Progress
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent = pct + '%';
+  const remaining = Math.max(0, TARGET - totalHrs);
+  document.getElementById('progress-left').textContent = remaining.toFixed(1) + ' hrs remaining';
+
+  // Donut chart
+  const donutData = Object.entries(clientTotals).filter(([,v]) => v > 0);
+  if (donutChart) donutChart.destroy();
+  donutChart = new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: donutData.map(([k]) => k),
+      datasets: [{ data: donutData.map(([,v]) => v), backgroundColor: donutData.map(([k]) => CLIENTS[k].color), borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw.toFixed(1)} hrs` } }
+      }
+    }
+  });
+
+  // Daily bar chart
+  const days = Object.keys(dailyTotals).map(Number).sort((a,b)=>a-b);
+  if (dailyChart) dailyChart.destroy();
+  dailyChart = new Chart(document.getElementById('dailyChart'), {
+    type: 'bar',
+    data: {
+      labels: days.map(d => 'Mar ' + d),
+      datasets: [{ label: 'Hours', data: days.map(d => dailyTotals[d] || 0), backgroundColor: '#1a2a3a', borderRadius: 4 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font: { size: 9 }, maxRotation: 45 } },
+        y: { beginAtZero: true, ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+
+  // Revenue table
+  const tbody = document.getElementById('rev-table');
+  tbody.innerHTML = '';
+  revRows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><span class="dot" style="background:${r.color}"></span>${r.name}</td><td style="color:#888;font-size:11px">${r.basis}</td><td style="text-align:right;font-weight:600">${r.amount > 0 ? fmt(r.amount) : '—'}</td>`;
+    tbody.appendChild(tr);
+  });
+  const totRow = document.createElement('tr');
+  totRow.className = 'total-row';
+  totRow.innerHTML = `<td colspan="2">Total</td><td style="text-align:right">${fmt(totalRev)}</td>`;
+  tbody.appendChild(totRow);
+
+  // Activity log (most recent first)
+  const log = document.getElementById('activity-log');
+  log.innerHTML = '';
+  const sorted = [...entries].sort((a,b) => b.day - a.day);
+  sorted.slice(0, 30).forEach(e => {
+    const div = document.createElement('div');
+    div.className = 'log-item';
+    div.innerHTML = `<div class="log-dot" style="background:${CLIENTS[e.client].color}"></div>
+      <div>
+        <div class="log-meta">Mar ${e.day} · ${e.client} · ${e.hours}h</div>
+        <div class="log-task">${e.task || '(no description)'}</div>
+      </div>`;
+    log.appendChild(div);
+  });
+
+  // Show dashboard
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  const now = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  document.getElementById('status').textContent = 'Updated ' + now;
+}
+
+loadData();
+</script>
+</body>
+</html>
